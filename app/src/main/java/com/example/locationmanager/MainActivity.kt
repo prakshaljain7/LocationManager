@@ -1,34 +1,36 @@
 package com.example.locationmanager
 
-import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
-import android.content.pm.PackageManager
+import android.location.Criteria
 import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.TextView
 import android.widget.Toast
-import androidx.core.app.ActivityCompat
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
+import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.security.Provider
 
 class MainActivity : AppCompatActivity() {
     private lateinit var textViewLat:TextView
     private lateinit var textViewLong:TextView
+    private lateinit var criteria: Criteria
+    private lateinit var bestProvider:String
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         textViewLat = findViewById(R.id.tv_lat)
         textViewLong = findViewById(R.id.tv_long)
-        getContinuousLocation(this)
+        criteria = Criteria()
+        criteria.accuracy = Criteria.ACCURACY_FINE
+        getLastKnownLocation(this)
     }
 
     private fun getContinuousLocation(context: Context) {
@@ -39,54 +41,91 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-
+    @SuppressLint("MissingPermission")
+    private fun getLastLocation(): Location? {
+        val locationManager =
+            applicationContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val providers: List<String> = locationManager.getProviders(true)
+        var bestLocation: Location? = null
+        for (provider in providers) {
+            Log.i("insideProvider",provider)
+            val l: Location = locationManager.getLastKnownLocation(provider) ?: continue
+            if (bestLocation == null || l.accuracy < bestLocation.accuracy) {
+                // Found best last known location: %s", l);
+                bestLocation = l
+                bestProvider = provider
+            }
+        }
+        return bestLocation
+    }
+    @SuppressLint("MissingPermission")
     private fun getLastKnownLocation(context: Context) {
-
+        Log.i("method","called")
         val isLocationEnabled = isLocationServiceEnabled(context)
         if (isLocationEnabled.first) {
 
-            val fusedLocationClient =
-                LocationServices.getFusedLocationProviderClient(applicationContext)
+            val mHandler = Handler(Looper.getMainLooper())
 
+            val locationManager =
+                getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
-            if (ActivityCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.ACCESS_FINE_LOCATION
-                ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                // TODO: Consider calling
-                //    ActivityCompat#requestPermissions
-                // here to request the missing permissions, and then overriding
-                //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                //                                          int[] grantResults)
-                // to handle the case where the user grants the permission. See the documentation
-                // for ActivityCompat#requestPermissions for more details.
-                return
-            }
-            fusedLocationClient.requestLocationUpdates(LocationRequest.create().apply {
-                priority = LocationRequest.PRIORITY_HIGH_ACCURACY
-                interval = 5000
-            },object : LocationCallback() {
-                override fun onLocationResult(locationResult: LocationResult?) {
-                    locationResult ?: return
-                    for (location in locationResult.locations){
-                        // Update UI with location data
-                        // ...
-                        textViewLat.text = location.latitude.toString()
-                        textViewLong.text = location.longitude.toString()
+            val lastKnownLocation = getLastLocation()
+            Toast.makeText(
+                context,
+                "lat  ${lastKnownLocation?.latitude} long ${lastKnownLocation?.longitude}",
+                Toast.LENGTH_SHORT
+            ).show()
+
+            val locationListener: LocationListener = object : LocationListener {
+                override
+                fun onLocationChanged(p0: Location) {
+                    Log.i("inside","locationChanged")
+                    mHandler.post {
+                        textViewLat.text = p0.latitude.toString()
+                        textViewLong.text = p0.longitude.toString()
                         Toast.makeText(
                             context,
-                            "lat  ${location.latitude} long ${location.longitude}",
+                            "lat  ${p0?.latitude} long ${p0?.longitude}",
                             Toast.LENGTH_SHORT
                         ).show()
                     }
                 }
-            }, Looper.getMainLooper())
+
+                override
+                fun onStatusChanged(
+                    provider: String?,
+                    status: Int,
+                    extras: Bundle?
+                ) {
+                    Log.i("inside","status change")
+                }
+
+                override
+                fun onProviderEnabled(provider: String) {
+                    Log.i("inside","enable")
+                }
+
+                override
+                fun onProviderDisabled(provider: String) {
+                    Log.i("inside","disable")
+                }
+            }
+
+            locationManager.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER,
+                1000L,
+                0f,
+                locationListener
+            )
+            locationManager.requestLocationUpdates(
+                LocationManager.NETWORK_PROVIDER,
+                1000L,
+                0f,
+                locationListener
+            )
 
         } else {
+            Log.i("inside","False")
             Toast.makeText(context, "service not available", Toast.LENGTH_SHORT).show()
         }
 
